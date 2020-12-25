@@ -15,15 +15,6 @@ func PrintReport(r *SpaceUsageReport, w io.Writer) {
 }
 
 func printReport(r *SpaceUsageReport, w io.Writer, tab string) {
-	if r.Values["__object-kind"] == "zero-value" ||
-		r.Values["__object-kind"] == "ptr" {
-		for i := range r.Children {
-			printReport(r.Children[i], w, tab)
-		}
-
-		return
-	}
-
 	fields := make([][2]string, 0, len(r.Values))
 
 	for k, v := range r.Values {
