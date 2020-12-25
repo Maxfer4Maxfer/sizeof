@@ -77,7 +77,8 @@ func (sur *SpaceUsageReport) childrenLength() int {
 }
 
 type sizeOfCalculator struct {
-	ptrTraversal map[uintptr]struct{}
+	ptrTraversal   map[uintptr]struct{}
+	extendedReport bool
 }
 
 func (soc *sizeOfCalculator) sizeOf(
@@ -91,12 +92,10 @@ func (soc *sizeOfCalculator) sizeOf(
 		return size, report
 	}
 
-	rt := rv.Type()
-
 	report.addValue("___type", rv.Type().String())
-	report.addValue("__object-kind", rt.Kind().String())
+	report.addValue("__object-kind", rv.Type().Kind().String())
 
-	switch rt.Kind() {
+	switch rv.Type().Kind() {
 	case reflect.Ptr:
 		size = soc.sizePointer(rv, report)
 	case reflect.Interface:
@@ -116,9 +115,9 @@ func (soc *sizeOfCalculator) sizeOf(
 		reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8,
 		reflect.Invalid, reflect.Uint, reflect.Uint16, reflect.Uint32,
 		reflect.Uint64, reflect.Uint8, reflect.Uintptr, reflect.UnsafePointer:
-		size = int(rt.Size())
+		size = int(rv.Type().Size())
 	default:
-		size = int(rt.Size())
+		size = int(rv.Type().Size())
 	}
 
 	report.addValue("__size", MemHumanReadableValue(size))
@@ -169,7 +168,13 @@ func (soc *sizeOfCalculator) sizeArray(
 		report.addValue("count-each-key", "yes")
 
 		for i := 0; i < rv.Len(); i++ {
-			s, _ := soc.sizeOf(rv.Index(i), nil)
+			var child *SpaceUsageReport
+
+			if soc.extendedReport {
+				child = report.addChild()
+			}
+
+			s, _ := soc.sizeOf(rv.Index(i), child)
 			size += s
 
 			if (i+1)%lengthThresholdForGC == 0 {
@@ -191,11 +196,9 @@ func (soc *sizeOfCalculator) sizeMap(
 
 	report.addValue("_length", fmt.Sprintf("%d", rv.Len()))
 
-	rt := rv.Type()
-
 	size := 0
 	// + 8 bytes (:pointer)
-	size += int(rt.Size())
+	size += int(rv.Type().Size())
 	// + 48 bytes (:hmap)
 	size += 48 + 24
 	// + len(map) / 8 (:bucket's size) * 8 bytes (:bmap)
@@ -205,11 +208,17 @@ func (soc *sizeOfCalculator) sizeMap(
 
 	keys := rv.MapKeys()
 
-	if isTypeWithFloatingValueSize(rt.Key()) {
+	if isTypeWithFloatingValueSize(rv.Type().Key()) {
 		report.addValue("count-each-key", "yes")
 
 		for i := 0; i < len(keys); i++ {
-			s, _ := soc.sizeOf(keys[i], nil)
+			var child *SpaceUsageReport
+
+			if soc.extendedReport {
+				child = report.addChild()
+			}
+
+			s, _ := soc.sizeOf(keys[i], child)
 			size += s
 
 			if (i+1)%lengthThresholdForGC == 0 {
@@ -223,13 +232,19 @@ func (soc *sizeOfCalculator) sizeMap(
 
 	iter := rv.MapRange()
 
-	if isTypeWithFloatingValueSize(rt.Elem()) {
+	if isTypeWithFloatingValueSize(rv.Type().Elem()) {
 		report.addValue("count-each-value", "yes")
 
 		i := 0
 
 		for iter.Next() {
-			s, _ := soc.sizeOf(iter.Value(), nil)
+			var child *SpaceUsageReport
+
+			if soc.extendedReport {
+				child = report.addChild()
+			}
+
+			s, _ := soc.sizeOf(iter.Value(), child)
 			size += s
 
 			i++
@@ -337,7 +352,7 @@ func isTypeWithFloatingValueSize(rt reflect.Type) bool {
 	case reflect.Array, reflect.Ptr:
 		return isTypeWithFloatingValueSize(rt.Elem())
 	case reflect.Interface:
-		return false
+		return true
 	case reflect.String:
 		return true
 	case reflect.Map:
@@ -378,16 +393,44 @@ func SizeOf(v interface{}) int {
 	return size
 }
 
+// Options is a struct for options for this component.
+type Options struct {
+	extendedReport bool
+}
+
+func defaultOptions() Options {
+	return Options{
+		extendedReport: false,
+	}
+}
+
+// Option is the func interface to assign options.
+type Option func(*Options)
+
+// ExtendedReport includes to the report every object in each slice and map.
+func ExtendedReport() Option {
+	return func(o *Options) {
+		o.extendedReport = true
+	}
+}
+
 // SizeOfVerbose returns total size in bytes that the object allocate in memory.
 // The second returned value is a detailed report of space usage.
-func SizeOfVerbose(v interface{}) (int, SpaceUsageReport) {
+func SizeOfVerbose(v interface{}, opts ...Option) (int, SpaceUsageReport) {
 	rv, ok := v.(reflect.Value)
 	if !ok {
 		rv = reflect.ValueOf(v)
 	}
 
+	options := defaultOptions()
+
+	for _, o := range opts {
+		o(&options)
+	}
+
 	soc := sizeOfCalculator{
-		ptrTraversal: make(map[uintptr]struct{}),
+		ptrTraversal:   make(map[uintptr]struct{}),
+		extendedReport: options.extendedReport,
 	}
 
 	size, report := soc.sizeOf(rv, newSpaceUsageReport())
