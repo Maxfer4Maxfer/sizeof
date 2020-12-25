@@ -31,7 +31,7 @@ SpaceUsageReport holds detail information of space usage.
 
 Possible valuues of the SpaceUsageReport:
 | Go Type      | Report's field        | Description  |
-| ------------ |:---------------------:| ----------------------------------------------------------------------------:|
+| ------------ | --------------------- | ---------------------------------------------------------------------------- |
 | *            | \___type              | Datatype of the object                                                       |
 | Everyove has | \__object-kind        | Kind of the object array/map/slice/struct and etc...                         |
 |              | \__size               | String with human a readable size value                                      |
